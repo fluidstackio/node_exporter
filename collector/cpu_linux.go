@@ -39,6 +39,7 @@ type cpuCollector struct {
 	procfs             procfs.FS
 	sysfs              sysfs.FS
 	cpu                *prometheus.Desc
+	cpuMean            *prometheus.Desc
 	cpuInfo            *prometheus.Desc
 	cpuFrequencyHz     *prometheus.Desc
 	cpuFlagsInfo       *prometheus.Desc
@@ -93,9 +94,10 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 	}
 
 	c := &cpuCollector{
-		procfs: pfs,
-		sysfs:  sfs,
-		cpu:    nodeCPUSecondsDesc,
+		procfs:  pfs,
+		sysfs:   sfs,
+		cpu:     nodeCPUSecondsDesc,
+		cpuMean: nodeCPUSecondsMeanDesc,
 		cpuInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info"),
 			"CPU information from /proc/cpuinfo.",
@@ -404,7 +406,40 @@ func (c *cpuCollector) updateStat(ch chan<- prometheus.Metric) error {
 		}
 	}
 
+	// Emit mean CPU metrics.
+	c.emitCPUMeanMetrics(ch)
+
 	return nil
+}
+
+// emitCPUMeanMetrics calculates and emits mean CPU metrics across all cores.
+func (c *cpuCollector) emitCPUMeanMetrics(ch chan<- prometheus.Metric) {
+	if len(c.cpuStats) == 0 {
+		return
+	}
+
+	cpuCount := float64(len(c.cpuStats))
+	modes := []struct {
+		name  string
+		value func(procfs.CPUStat) float64
+	}{
+		{"user", func(s procfs.CPUStat) float64 { return s.User }},
+		{"nice", func(s procfs.CPUStat) float64 { return s.Nice }},
+		{"system", func(s procfs.CPUStat) float64 { return s.System }},
+		{"idle", func(s procfs.CPUStat) float64 { return s.Idle }},
+		{"iowait", func(s procfs.CPUStat) float64 { return s.Iowait }},
+		{"irq", func(s procfs.CPUStat) float64 { return s.IRQ }},
+		{"softirq", func(s procfs.CPUStat) float64 { return s.SoftIRQ }},
+		{"steal", func(s procfs.CPUStat) float64 { return s.Steal }},
+	}
+
+	for _, mode := range modes {
+		var total float64
+		for _, stat := range c.cpuStats {
+			total += mode.value(stat)
+		}
+		ch <- prometheus.MustNewConstMetric(c.cpuMean, prometheus.CounterValue, total/cpuCount, mode.name)
+	}
 }
 
 // updateCPUStats updates the internal cache of CPU stats.

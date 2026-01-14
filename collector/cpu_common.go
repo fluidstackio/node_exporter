@@ -30,4 +30,9 @@ var (
 		"Seconds the CPUs spent in each mode.",
 		[]string{"cpu", "mode"}, nil,
 	)
+	nodeCPUSecondsMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "seconds_mean"),
+		"Mean seconds the CPUs spent in each mode.",
+		[]string{"mode"}, nil,
+	)
 )
