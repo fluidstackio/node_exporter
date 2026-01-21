@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"sync"
 
 	"golang.org/x/exp/maps"
@@ -38,23 +37,18 @@ import (
 type cpuCollector struct {
 	procfs                     procfs.FS
 	sysfs                      sysfs.FS
-	cpu                        *prometheus.Desc
 	cpuSecondsAllCoreMean      *prometheus.Desc
 	cpuGuestSecondsAllCoreMean *prometheus.Desc
 	cpuInfoAllCoreAggregate    *prometheus.Desc
 	cpuFrequencyHzAllCoreMin   *prometheus.Desc
 	cpuFrequencyHzAllCoreMean  *prometheus.Desc
 	cpuFrequencyHzAllCoreMax   *prometheus.Desc
-	cpuInfo                    *prometheus.Desc
-	cpuFrequencyHz             *prometheus.Desc
 	cpuFlagsInfo               *prometheus.Desc
 	cpuBugsInfo                *prometheus.Desc
-	cpuGuest                   *prometheus.Desc
-	cpuCoreThrottle            *prometheus.Desc
-	cpuPackageThrottle         *prometheus.Desc
-	cpuIsolated                *prometheus.Desc
+	cpuThrottlesAllCoreTotal   *prometheus.Desc
+	cpuIsolatedAllCoreCount    *prometheus.Desc
+	cpuOnlineAllCoreCount      *prometheus.Desc
 	logger                     *slog.Logger
-	cpuOnline                  *prometheus.Desc
 	cpuStats                   map[int64]procfs.CPUStat
 	cpuStatsMutex              sync.Mutex
 	isolatedCpus               []uint16
@@ -101,23 +95,12 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 	c := &cpuCollector{
 		procfs:                     pfs,
 		sysfs:                      sfs,
-		cpu:                        nodeCPUSecondsDesc,
 		cpuSecondsAllCoreMean:      nodeCPUSecondsAllCoreMeanDesc,
 		cpuGuestSecondsAllCoreMean: nodeCPUGuestSecondsAllCoreMeanDesc,
 		cpuInfoAllCoreAggregate:    nodeCPUInfoAllCoreAggregateDesc,
 		cpuFrequencyHzAllCoreMin:   nodeCPUFrequencyHzAllCoreMinDesc,
 		cpuFrequencyHzAllCoreMean:  nodeCPUFrequencyHzAllCoreMeanDesc,
 		cpuFrequencyHzAllCoreMax:   nodeCPUFrequencyHzAllCoreMaxDesc,
-		cpuInfo: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info"),
-			"CPU information from /proc/cpuinfo.",
-			[]string{"package", "core", "cpu", "vendor", "family", "model", "model_name", "microcode", "stepping", "cachesize"}, nil,
-		),
-		cpuFrequencyHz: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz"),
-			"CPU frequency in hertz from /proc/cpuinfo.",
-			[]string{"package", "core", "cpu"}, nil,
-		),
 		cpuFlagsInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "flag_info"),
 			"The `flags` field of CPU information from /proc/cpuinfo taken from the first core.",
@@ -128,30 +111,20 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 			"The `bugs` field of CPU information from /proc/cpuinfo taken from the first core.",
 			[]string{"bug"}, nil,
 		),
-		cpuGuest: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "guest_seconds_total"),
-			"Seconds the CPUs spent in guests (VMs) for each mode.",
-			[]string{"cpu", "mode"}, nil,
+		cpuThrottlesAllCoreTotal: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_core_total"),
+			"Total number of CPU throttle events across all cores.",
+			nil, nil,
 		),
-		cpuCoreThrottle: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "core_throttles_total"),
-			"Number of times this CPU core has been throttled.",
-			[]string{"package", "core"}, nil,
+		cpuIsolatedAllCoreCount: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "isolated_all_core_count"),
+			"Number of isolated CPUs.",
+			nil, nil,
 		),
-		cpuPackageThrottle: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "package_throttles_total"),
-			"Number of times this CPU package has been throttled.",
-			[]string{"package"}, nil,
-		),
-		cpuIsolated: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "isolated"),
-			"Whether each core is isolated, information from /sys/devices/system/cpu/isolated.",
-			[]string{"cpu"}, nil,
-		),
-		cpuOnline: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "online"),
-			"CPUs that are online and being scheduled.",
-			[]string{"cpu"}, nil,
+		cpuOnlineAllCoreCount: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "online_all_core_count"),
+			"Number of CPUs that are online and being scheduled.",
+			nil, nil,
 		),
 		logger:       logger,
 		isolatedCpus: isolcpus,
@@ -324,31 +297,30 @@ func (c *cpuCollector) updateThermalThrottle(ch chan<- prometheus.Metric) error 
 		}
 	}
 
-	for physicalPackageID, packageThrottleCount := range packageThrottles {
-		ch <- prometheus.MustNewConstMetric(c.cpuPackageThrottle,
-			prometheus.CounterValue,
-			float64(packageThrottleCount),
-			strconv.FormatUint(physicalPackageID, 10))
+	// Emit aggregate total throttle count across all cores
+	var totalThrottles uint64
+	for _, packageThrottleCount := range packageThrottles {
+		totalThrottles += packageThrottleCount
 	}
-
-	for physicalPackageID, coreMap := range packageCoreThrottles {
-		for coreID, coreThrottleCount := range coreMap {
-			ch <- prometheus.MustNewConstMetric(c.cpuCoreThrottle,
-				prometheus.CounterValue,
-				float64(coreThrottleCount),
-				strconv.FormatUint(physicalPackageID, 10),
-				strconv.FormatUint(coreID, 10))
+	for _, coreMap := range packageCoreThrottles {
+		for _, coreThrottleCount := range coreMap {
+			totalThrottles += coreThrottleCount
 		}
 	}
+
+	if totalThrottles > 0 {
+		ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
+			prometheus.CounterValue,
+			float64(totalThrottles))
+	}
+
 	return nil
 }
 
 // updateIsolated reads /sys/devices/system/cpu/isolated through sysfs and exports isolation level metrics.
 func (c *cpuCollector) updateIsolated(ch chan<- prometheus.Metric) {
-	for _, cpu := range c.isolatedCpus {
-		cpuNum := strconv.Itoa(int(cpu))
-		ch <- prometheus.MustNewConstMetric(c.cpuIsolated, prometheus.GaugeValue, 1.0, cpuNum)
-	}
+	// Emit count of isolated CPUs instead of per-CPU metrics
+	ch <- prometheus.MustNewConstMetric(c.cpuIsolatedAllCoreCount, prometheus.GaugeValue, float64(len(c.isolatedCpus)))
 }
 
 // updateOnline reads /sys/devices/system/cpu/cpu*/online through sysfs and exports online status metrics.
@@ -362,13 +334,15 @@ func (c *cpuCollector) updateOnline(ch chan<- prometheus.Metric) error {
 	if _, err := cpu0.Online(); err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+
+	// Count online CPUs instead of emitting per-CPU metrics
+	onlineCount := 0
 	for _, cpu := range cpus {
-		setOnline := float64(0)
 		if online, _ := cpu.Online(); online {
-			setOnline = 1
+			onlineCount++
 		}
-		ch <- prometheus.MustNewConstMetric(c.cpuOnline, prometheus.GaugeValue, setOnline, cpu.Number())
 	}
+	ch <- prometheus.MustNewConstMetric(c.cpuOnlineAllCoreCount, prometheus.GaugeValue, float64(onlineCount))
 
 	return nil
 }
