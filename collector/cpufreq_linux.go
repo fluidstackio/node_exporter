@@ -98,43 +98,43 @@ func (c *cpuFreqCollector) Update(ch chan<- prometheus.Metric) error {
 	// Emit current frequency aggregates (min/mean/max)
 	if len(currentFreqs) > 0 {
 		min, mean, max := calculateMinMeanMax(currentFreqs)
-		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMinDesc, prometheus.GaugeValue, min)
-		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMeanDesc, prometheus.GaugeValue, mean)
-		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMaxDesc, prometheus.GaugeValue, max)
+		ch <- prometheus.MustNewConstMetric(cpuFreqCurrentHzMinDesc, prometheus.GaugeValue, min)
+		ch <- prometheus.MustNewConstMetric(cpuFreqCurrentHzMeanDesc, prometheus.GaugeValue, mean)
+		ch <- prometheus.MustNewConstMetric(cpuFreqCurrentHzMaxDesc, prometheus.GaugeValue, max)
 	}
 
-	// Emit min frequency aggregate (absolute minimum)
+	// Emit min frequency capability (absolute minimum)
 	if len(minFreqs) > 0 {
-		ch <- prometheus.MustNewConstMetric(cpuFreqMinAllCoreMinDesc, prometheus.GaugeValue, findMin(minFreqs))
+		ch <- prometheus.MustNewConstMetric(cpuFreqCapabilityMinHzDesc, prometheus.GaugeValue, findMin(minFreqs))
 	}
 
-	// Emit max frequency aggregate (absolute maximum)
+	// Emit max frequency capability (absolute maximum)
 	if len(maxFreqs) > 0 {
-		ch <- prometheus.MustNewConstMetric(cpuFreqMaxAllCoreMaxDesc, prometheus.GaugeValue, findMax(maxFreqs))
+		ch <- prometheus.MustNewConstMetric(cpuFreqCapabilityMaxHzDesc, prometheus.GaugeValue, findMax(maxFreqs))
 	}
 
 	// Emit scaling current frequency aggregates (min/mean/max)
 	if len(scalingFreqs) > 0 {
 		min, mean, max := calculateMinMeanMax(scalingFreqs)
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMinDesc, prometheus.GaugeValue, min)
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMeanDesc, prometheus.GaugeValue, mean)
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMaxDesc, prometheus.GaugeValue, max)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingCurrentHzMinDesc, prometheus.GaugeValue, min)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingCurrentHzMeanDesc, prometheus.GaugeValue, mean)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingCurrentHzMaxDesc, prometheus.GaugeValue, max)
 	}
 
-	// Emit scaling min frequency aggregate (absolute minimum)
+	// Emit scaling min frequency capability (absolute minimum)
 	if len(scalingMinFreqs) > 0 {
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqMinAllCoreMinDesc, prometheus.GaugeValue, findMin(scalingMinFreqs))
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingCapabilityMinHzDesc, prometheus.GaugeValue, findMin(scalingMinFreqs))
 	}
 
-	// Emit scaling max frequency aggregate (absolute maximum)
+	// Emit scaling max frequency capability (absolute maximum)
 	if len(scalingMaxFreqs) > 0 {
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqMaxAllCoreMaxDesc, prometheus.GaugeValue, findMax(scalingMaxFreqs))
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingCapabilityMaxHzDesc, prometheus.GaugeValue, findMax(scalingMaxFreqs))
 	}
 
-	// Emit governor aggregate (most common governor)
+	// Emit governor modal (most common governor)
 	if len(governorCounts) > 0 {
 		modalGovernor := findModalValue(governorCounts)
-		ch <- prometheus.MustNewConstMetric(cpuFreqScalingGovernorAllCoreAggregateDesc, prometheus.GaugeValue, 1, modalGovernor)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingGovernorModalDesc, prometheus.GaugeValue, 1, modalGovernor)
 	}
 
 	return nil

@@ -39,16 +39,16 @@ type cpuCollector struct {
 	sysfs                       sysfs.FS
 	cpuSecondsAllCoreMean       *prometheus.Desc
 	cpuGuestSecondsAllCoreMean  *prometheus.Desc
-	cpuInfoAllCoreAggregate     *prometheus.Desc
-	cpuFrequencyHzAllCoreMin    *prometheus.Desc
-	cpuFrequencyHzAllCoreMean   *prometheus.Desc
-	cpuFrequencyHzAllCoreMax    *prometheus.Desc
+	cpuInfoModal                *prometheus.Desc
+	cpuFrequencyCurrentHzMin    *prometheus.Desc
+	cpuFrequencyCurrentHzMean   *prometheus.Desc
+	cpuFrequencyCurrentHzMax    *prometheus.Desc
 	cpuFlagsInfo                *prometheus.Desc
 	cpuBugsInfo                 *prometheus.Desc
 	cpuThrottlesAllCoreTotal    *prometheus.Desc
 	cpuThrottlesAllPackageTotal *prometheus.Desc
-	cpuIsolatedAllCoreCount     *prometheus.Desc
-	cpuOnlineAllCoreCount       *prometheus.Desc
+	cpusIsolated                *prometheus.Desc
+	cpusOnline                  *prometheus.Desc
 	logger                      *slog.Logger
 	cpuStats                    map[int64]procfs.CPUStat
 	cpuStatsMutex               sync.Mutex
@@ -98,10 +98,10 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 		sysfs:                      sfs,
 		cpuSecondsAllCoreMean:      nodeCPUSecondsAllCoreMeanDesc,
 		cpuGuestSecondsAllCoreMean: nodeCPUGuestSecondsAllCoreMeanDesc,
-		cpuInfoAllCoreAggregate:    nodeCPUInfoAllCoreAggregateDesc,
-		cpuFrequencyHzAllCoreMin:   nodeCPUFrequencyHzAllCoreMinDesc,
-		cpuFrequencyHzAllCoreMean:  nodeCPUFrequencyHzAllCoreMeanDesc,
-		cpuFrequencyHzAllCoreMax:   nodeCPUFrequencyHzAllCoreMaxDesc,
+		cpuInfoModal:               nodeCPUInfoModalDesc,
+		cpuFrequencyCurrentHzMin:   nodeCPUFrequencyCurrentHzMinDesc,
+		cpuFrequencyCurrentHzMean:  nodeCPUFrequencyCurrentHzMeanDesc,
+		cpuFrequencyCurrentHzMax:   nodeCPUFrequencyCurrentHzMaxDesc,
 		cpuFlagsInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "flag_info"),
 			"The `flags` field of CPU information from /proc/cpuinfo taken from the first core.",
@@ -114,19 +114,11 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 		),
 		cpuThrottlesAllCoreTotal:    nodeCPUThrottlesAllCoreTotalDesc,
 		cpuThrottlesAllPackageTotal: nodeCPUThrottlesAllPackageTotalDesc,
-		cpuIsolatedAllCoreCount: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "isolated_all_core_count"),
-			"Number of isolated CPUs.",
-			nil, nil,
-		),
-		cpuOnlineAllCoreCount: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "online_all_core_count"),
-			"Number of CPUs that are online and being scheduled.",
-			nil, nil,
-		),
-		logger:       logger,
-		isolatedCpus: isolcpus,
-		cpuStats:     make(map[int64]procfs.CPUStat),
+		cpusIsolated:                nodeCPUsIsolatedDesc,
+		cpusOnline:                  nodeCPUsOnlineDesc,
+		logger:                      logger,
+		isolatedCpus:                isolcpus,
+		cpuStats:                    make(map[int64]procfs.CPUStat),
 	}
 	err = c.compileIncludeFlags(flagsInclude, bugsInclude)
 	if err != nil {
@@ -321,7 +313,7 @@ func (c *cpuCollector) updateThermalThrottle(ch chan<- prometheus.Metric) error 
 // updateIsolated reads /sys/devices/system/cpu/isolated through sysfs and exports isolation level metrics.
 func (c *cpuCollector) updateIsolated(ch chan<- prometheus.Metric) {
 	// Emit count of isolated CPUs instead of per-CPU metrics
-	ch <- prometheus.MustNewConstMetric(c.cpuIsolatedAllCoreCount, prometheus.GaugeValue, float64(len(c.isolatedCpus)))
+	ch <- prometheus.MustNewConstMetric(c.cpusIsolated, prometheus.GaugeValue, float64(len(c.isolatedCpus)))
 }
 
 // updateOnline reads /sys/devices/system/cpu/cpu*/online through sysfs and exports online status metrics.
@@ -343,7 +335,7 @@ func (c *cpuCollector) updateOnline(ch chan<- prometheus.Metric) error {
 			onlineCount++
 		}
 	}
-	ch <- prometheus.MustNewConstMetric(c.cpuOnlineAllCoreCount, prometheus.GaugeValue, float64(onlineCount))
+	ch <- prometheus.MustNewConstMetric(c.cpusOnline, prometheus.GaugeValue, float64(onlineCount))
 
 	return nil
 }
@@ -437,7 +429,7 @@ func (c *cpuCollector) emitCPUInfoAllCoreAggregate(ch chan<- prometheus.Metric, 
 		cacheSizeCount[cpu.CacheSize]++
 	}
 
-	ch <- prometheus.MustNewConstMetric(c.cpuInfoAllCoreAggregate,
+	ch <- prometheus.MustNewConstMetric(c.cpuInfoModal,
 		prometheus.GaugeValue,
 		1,
 		findModalValue(vendorCount),
@@ -464,9 +456,9 @@ func (c *cpuCollector) emitCPUFrequencyAllCoreAggregates(ch chan<- prometheus.Me
 	// Use common helper to calculate min/mean/max
 	minFreq, meanFreq, maxFreq := calculateMinMeanMax(freqs)
 
-	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMin, prometheus.GaugeValue, minFreq)
-	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMean, prometheus.GaugeValue, meanFreq)
-	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMax, prometheus.GaugeValue, maxFreq)
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyCurrentHzMin, prometheus.GaugeValue, minFreq)
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyCurrentHzMean, prometheus.GaugeValue, meanFreq)
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyCurrentHzMax, prometheus.GaugeValue, maxFreq)
 }
 
 // updateCPUStats updates the internal cache of CPU stats.

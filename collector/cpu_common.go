@@ -42,24 +42,24 @@ var (
 		"Mean seconds the CPUs spent in guest mode across all cores.",
 		[]string{"mode"}, nil,
 	)
-	nodeCPUInfoAllCoreAggregateDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info_all_core_aggregate"),
-		"Aggregate CPU information across all cores (modal values).",
+	nodeCPUInfoModalDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info_modal"),
+		"Modal (most common) CPU information across all cores.",
 		[]string{"vendor", "family", "model", "model_name", "microcode", "stepping", "cachesize"}, nil,
 	)
-	nodeCPUFrequencyHzAllCoreMinDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_min"),
-		"Minimum CPU frequency in hertz across all cores.",
+	nodeCPUFrequencyCurrentHzMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_current_hertz_min"),
+		"Minimum current CPU frequency in hertz across all cores.",
 		nil, nil,
 	)
-	nodeCPUFrequencyHzAllCoreMeanDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_mean"),
-		"Mean CPU frequency in hertz across all cores.",
+	nodeCPUFrequencyCurrentHzMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_current_hertz_mean"),
+		"Mean current CPU frequency in hertz across all cores.",
 		nil, nil,
 	)
-	nodeCPUFrequencyHzAllCoreMaxDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_max"),
-		"Maximum CPU frequency in hertz across all cores.",
+	nodeCPUFrequencyCurrentHzMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_current_hertz_max"),
+		"Maximum current CPU frequency in hertz across all cores.",
 		nil, nil,
 	)
 	nodeCPUThrottlesAllCoreTotalDesc = prometheus.NewDesc(
@@ -70,6 +70,16 @@ var (
 	nodeCPUThrottlesAllPackageTotalDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_package_total"),
 		"Total number of CPU package throttle events across all packages.",
+		nil, nil,
+	)
+	nodeCPUsIsolatedDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "cpus_isolated"),
+		"Number of CPUs that are isolated.",
+		nil, nil,
+	)
+	nodeCPUsOnlineDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "cpus_online"),
+		"Number of CPUs that are online and being scheduled.",
 		nil, nil,
 	)
 )
