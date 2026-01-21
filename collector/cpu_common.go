@@ -30,9 +30,34 @@ var (
 		"Seconds the CPUs spent in each mode.",
 		[]string{"cpu", "mode"}, nil,
 	)
-	nodeCPUSecondsMeanDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "seconds_mean"),
-		"Mean seconds the CPUs spent in each mode.",
+	nodeCPUSecondsAllCoreMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "seconds_all_core_mean"),
+		"Mean seconds the CPUs spent in each mode across all cores.",
 		[]string{"mode"}, nil,
+	)
+	nodeCPUGuestSecondsAllCoreMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "guest_seconds_all_core_mean"),
+		"Mean seconds the CPUs spent in guest mode across all cores.",
+		[]string{"mode"}, nil,
+	)
+	nodeCPUInfoAllCoreAggregateDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info_all_core_aggregate"),
+		"Aggregate CPU information across all cores (modal values).",
+		[]string{"vendor", "family", "model", "model_name", "microcode", "stepping", "cachesize"}, nil,
+	)
+	nodeCPUFrequencyHzAllCoreMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_min"),
+		"Minimum CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	nodeCPUFrequencyHzAllCoreMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_mean"),
+		"Mean CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	nodeCPUFrequencyHzAllCoreMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_max"),
+		"Maximum CPU frequency in hertz across all cores.",
+		nil, nil,
 	)
 )

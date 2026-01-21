@@ -36,23 +36,28 @@ import (
 )
 
 type cpuCollector struct {
-	procfs             procfs.FS
-	sysfs              sysfs.FS
-	cpu                *prometheus.Desc
-	cpuMean            *prometheus.Desc
-	cpuInfo            *prometheus.Desc
-	cpuFrequencyHz     *prometheus.Desc
-	cpuFlagsInfo       *prometheus.Desc
-	cpuBugsInfo        *prometheus.Desc
-	cpuGuest           *prometheus.Desc
-	cpuCoreThrottle    *prometheus.Desc
-	cpuPackageThrottle *prometheus.Desc
-	cpuIsolated        *prometheus.Desc
-	logger             *slog.Logger
-	cpuOnline          *prometheus.Desc
-	cpuStats           map[int64]procfs.CPUStat
-	cpuStatsMutex      sync.Mutex
-	isolatedCpus       []uint16
+	procfs                     procfs.FS
+	sysfs                      sysfs.FS
+	cpu                        *prometheus.Desc
+	cpuSecondsAllCoreMean      *prometheus.Desc
+	cpuGuestSecondsAllCoreMean *prometheus.Desc
+	cpuInfoAllCoreAggregate    *prometheus.Desc
+	cpuFrequencyHzAllCoreMin   *prometheus.Desc
+	cpuFrequencyHzAllCoreMean  *prometheus.Desc
+	cpuFrequencyHzAllCoreMax   *prometheus.Desc
+	cpuInfo                    *prometheus.Desc
+	cpuFrequencyHz             *prometheus.Desc
+	cpuFlagsInfo               *prometheus.Desc
+	cpuBugsInfo                *prometheus.Desc
+	cpuGuest                   *prometheus.Desc
+	cpuCoreThrottle            *prometheus.Desc
+	cpuPackageThrottle         *prometheus.Desc
+	cpuIsolated                *prometheus.Desc
+	logger                     *slog.Logger
+	cpuOnline                  *prometheus.Desc
+	cpuStats                   map[int64]procfs.CPUStat
+	cpuStatsMutex              sync.Mutex
+	isolatedCpus               []uint16
 
 	cpuFlagsIncludeRegexp *regexp.Regexp
 	cpuBugsIncludeRegexp  *regexp.Regexp
@@ -94,10 +99,15 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 	}
 
 	c := &cpuCollector{
-		procfs:  pfs,
-		sysfs:   sfs,
-		cpu:     nodeCPUSecondsDesc,
-		cpuMean: nodeCPUSecondsMeanDesc,
+		procfs:                     pfs,
+		sysfs:                      sfs,
+		cpu:                        nodeCPUSecondsDesc,
+		cpuSecondsAllCoreMean:      nodeCPUSecondsAllCoreMeanDesc,
+		cpuGuestSecondsAllCoreMean: nodeCPUGuestSecondsAllCoreMeanDesc,
+		cpuInfoAllCoreAggregate:    nodeCPUInfoAllCoreAggregateDesc,
+		cpuFrequencyHzAllCoreMin:   nodeCPUFrequencyHzAllCoreMinDesc,
+		cpuFrequencyHzAllCoreMean:  nodeCPUFrequencyHzAllCoreMeanDesc,
+		cpuFrequencyHzAllCoreMax:   nodeCPUFrequencyHzAllCoreMaxDesc,
 		cpuInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info"),
 			"CPU information from /proc/cpuinfo.",
@@ -207,36 +217,21 @@ func (c *cpuCollector) updateInfo(ch chan<- prometheus.Metric) error {
 	if err != nil {
 		return err
 	}
-	for _, cpu := range info {
-		ch <- prometheus.MustNewConstMetric(c.cpuInfo,
-			prometheus.GaugeValue,
-			1,
-			cpu.PhysicalID,
-			cpu.CoreID,
-			strconv.Itoa(int(cpu.Processor)),
-			cpu.VendorID,
-			cpu.CPUFamily,
-			cpu.Model,
-			cpu.ModelName,
-			cpu.Microcode,
-			cpu.Stepping,
-			cpu.CacheSize)
+
+	// Emit aggregate CPU info (modal values across all cores)
+	if len(info) > 0 {
+		c.emitCPUInfoAllCoreAggregate(ch, info)
 	}
 
+	// Emit aggregate frequency metrics (if cpufreq collector is not enabled)
 	cpuFreqEnabled, ok := collectorState["cpufreq"]
 	if !ok || cpuFreqEnabled == nil {
 		c.logger.Debug("cpufreq key missing or nil value in collectorState map")
 	} else if !*cpuFreqEnabled {
-		for _, cpu := range info {
-			ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHz,
-				prometheus.GaugeValue,
-				cpu.CPUMHz*1e6,
-				cpu.PhysicalID,
-				cpu.CoreID,
-				strconv.Itoa(int(cpu.Processor)))
-		}
+		c.emitCPUFrequencyAllCoreAggregates(ch, info)
 	}
 
+	// Emit flags and bugs info from first core
 	if len(info) != 0 {
 		cpu := info[0]
 		if err := updateFieldInfo(cpu.Flags, c.cpuFlagsIncludeRegexp, c.cpuFlagsInfo, ch); err != nil {
@@ -388,32 +383,16 @@ func (c *cpuCollector) updateStat(ch chan<- prometheus.Metric) error {
 	// Acquire a lock to read the stats.
 	c.cpuStatsMutex.Lock()
 	defer c.cpuStatsMutex.Unlock()
-	for cpuID, cpuStat := range c.cpuStats {
-		cpuNum := strconv.Itoa(int(cpuID))
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.User, cpuNum, "user")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.Nice, cpuNum, "nice")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.System, cpuNum, "system")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.Idle, cpuNum, "idle")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.Iowait, cpuNum, "iowait")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.IRQ, cpuNum, "irq")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.SoftIRQ, cpuNum, "softirq")
-		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.Steal, cpuNum, "steal")
 
-		if *enableCPUGuest {
-			// Guest CPU is also accounted for in cpuStat.User and cpuStat.Nice, expose these as separate metrics.
-			ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuStat.Guest, cpuNum, "user")
-			ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuStat.GuestNice, cpuNum, "nice")
-		}
-	}
-
-	// Emit mean CPU metrics.
-	c.emitCPUMeanMetrics(ch)
+	// Emit all-core aggregate CPU metrics only (per-core metrics removed).
+	c.emitCPUSecondsAllCoreMean(ch)
+	c.emitCPUGuestSecondsAllCoreMean(ch)
 
 	return nil
 }
 
-// emitCPUMeanMetrics calculates and emits mean CPU metrics across all cores.
-func (c *cpuCollector) emitCPUMeanMetrics(ch chan<- prometheus.Metric) {
+// emitCPUSecondsAllCoreMean calculates and emits mean CPU seconds metrics across all cores.
+func (c *cpuCollector) emitCPUSecondsAllCoreMean(ch chan<- prometheus.Metric) {
 	if len(c.cpuStats) == 0 {
 		return
 	}
@@ -438,8 +417,100 @@ func (c *cpuCollector) emitCPUMeanMetrics(ch chan<- prometheus.Metric) {
 		for _, stat := range c.cpuStats {
 			total += mode.value(stat)
 		}
-		ch <- prometheus.MustNewConstMetric(c.cpuMean, prometheus.CounterValue, total/cpuCount, mode.name)
+		ch <- prometheus.MustNewConstMetric(c.cpuSecondsAllCoreMean, prometheus.CounterValue, total/cpuCount, mode.name)
 	}
+}
+
+// emitCPUGuestSecondsAllCoreMean calculates and emits mean guest CPU seconds metrics across all cores.
+func (c *cpuCollector) emitCPUGuestSecondsAllCoreMean(ch chan<- prometheus.Metric) {
+	if !*enableCPUGuest || len(c.cpuStats) == 0 {
+		return
+	}
+
+	cpuCount := float64(len(c.cpuStats))
+
+	var totalGuest, totalGuestNice float64
+	for _, stat := range c.cpuStats {
+		totalGuest += stat.Guest
+		totalGuestNice += stat.GuestNice
+	}
+
+	ch <- prometheus.MustNewConstMetric(c.cpuGuestSecondsAllCoreMean, prometheus.CounterValue, totalGuest/cpuCount, "user")
+	ch <- prometheus.MustNewConstMetric(c.cpuGuestSecondsAllCoreMean, prometheus.CounterValue, totalGuestNice/cpuCount, "nice")
+}
+
+// emitCPUInfoAllCoreAggregate calculates and emits aggregate CPU info (modal values) across all cores.
+func (c *cpuCollector) emitCPUInfoAllCoreAggregate(ch chan<- prometheus.Metric, info []procfs.CPUInfo) {
+	// Find modal (most common) value for each field
+	vendorCount := make(map[string]int)
+	familyCount := make(map[string]int)
+	modelCount := make(map[string]int)
+	modelNameCount := make(map[string]int)
+	microcodeCount := make(map[string]int)
+	steppingCount := make(map[string]int)
+	cacheSizeCount := make(map[string]int)
+
+	for _, cpu := range info {
+		vendorCount[cpu.VendorID]++
+		familyCount[cpu.CPUFamily]++
+		modelCount[cpu.Model]++
+		modelNameCount[cpu.ModelName]++
+		microcodeCount[cpu.Microcode]++
+		steppingCount[cpu.Stepping]++
+		cacheSizeCount[cpu.CacheSize]++
+	}
+
+	// Helper to find modal value
+	findModal := func(counts map[string]int) string {
+		maxCount := 0
+		modal := ""
+		for val, count := range counts {
+			if count > maxCount {
+				maxCount = count
+				modal = val
+			}
+		}
+		return modal
+	}
+
+	ch <- prometheus.MustNewConstMetric(c.cpuInfoAllCoreAggregate,
+		prometheus.GaugeValue,
+		1,
+		findModal(vendorCount),
+		findModal(familyCount),
+		findModal(modelCount),
+		findModal(modelNameCount),
+		findModal(microcodeCount),
+		findModal(steppingCount),
+		findModal(cacheSizeCount))
+}
+
+// emitCPUFrequencyAllCoreAggregates calculates and emits min/mean/max CPU frequency across all cores.
+func (c *cpuCollector) emitCPUFrequencyAllCoreAggregates(ch chan<- prometheus.Metric, info []procfs.CPUInfo) {
+	if len(info) == 0 {
+		return
+	}
+
+	var minFreq, maxFreq, sumFreq float64
+	minFreq = info[0].CPUMHz * 1e6
+	maxFreq = info[0].CPUMHz * 1e6
+
+	for _, cpu := range info {
+		freq := cpu.CPUMHz * 1e6
+		sumFreq += freq
+		if freq < minFreq {
+			minFreq = freq
+		}
+		if freq > maxFreq {
+			maxFreq = freq
+		}
+	}
+
+	meanFreq := sumFreq / float64(len(info))
+
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMin, prometheus.GaugeValue, minFreq)
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMean, prometheus.GaugeValue, meanFreq)
+	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMax, prometheus.GaugeValue, maxFreq)
 }
 
 // updateCPUStats updates the internal cache of CPU stats.

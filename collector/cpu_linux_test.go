@@ -203,7 +203,7 @@ func TestCPUOffline(t *testing.T) {
 
 }
 
-func TestCPUMean(t *testing.T) {
+func TestCPUSecondsAllCoreMean(t *testing.T) {
 	// Test with multiple CPUs with different values.
 	cpuStats := map[int64]procfs.CPUStat{
 		0: {
@@ -229,7 +229,7 @@ func TestCPUMean(t *testing.T) {
 	}
 
 	c := makeTestCPUCollector(cpuStats)
-	c.cpuMean = nodeCPUSecondsMeanDesc
+	c.cpuSecondsAllCoreMean = nodeCPUSecondsAllCoreMeanDesc
 
 	// Expected means (sum / 2):
 	// user: (100 + 200) / 2 = 150
@@ -242,7 +242,7 @@ func TestCPUMean(t *testing.T) {
 	// steal: (0 + 0) / 2 = 0
 
 	ch := make(chan prometheus.Metric, 8)
-	c.emitCPUMeanMetrics(ch)
+	c.emitCPUSecondsAllCoreMean(ch)
 	close(ch)
 
 	// Expected means (for reference, not used in test):
@@ -266,7 +266,7 @@ func TestCPUMean(t *testing.T) {
 	}
 }
 
-func TestCPUMeanSingleCPU(t *testing.T) {
+func TestCPUSecondsAllCoreMeanSingleCPU(t *testing.T) {
 	// Test with a single CPU - mean should equal the CPU value.
 	cpuStats := map[int64]procfs.CPUStat{
 		0: {
@@ -282,10 +282,10 @@ func TestCPUMeanSingleCPU(t *testing.T) {
 	}
 
 	c := makeTestCPUCollector(cpuStats)
-	c.cpuMean = nodeCPUSecondsMeanDesc
+	c.cpuSecondsAllCoreMean = nodeCPUSecondsAllCoreMeanDesc
 
 	ch := make(chan prometheus.Metric, 8)
-	c.emitCPUMeanMetrics(ch)
+	c.emitCPUSecondsAllCoreMean(ch)
 	close(ch)
 
 	// With a single CPU, the mean should be the same as the CPU values.
@@ -299,15 +299,15 @@ func TestCPUMeanSingleCPU(t *testing.T) {
 	}
 }
 
-func TestCPUMeanNoCPUs(t *testing.T) {
+func TestCPUSecondsAllCoreMeanNoCPUs(t *testing.T) {
 	// Test with no CPUs - should not emit any metrics.
 	cpuStats := map[int64]procfs.CPUStat{}
 
 	c := makeTestCPUCollector(cpuStats)
-	c.cpuMean = nodeCPUSecondsMeanDesc
+	c.cpuSecondsAllCoreMean = nodeCPUSecondsAllCoreMeanDesc
 
 	ch := make(chan prometheus.Metric, 8)
-	c.emitCPUMeanMetrics(ch)
+	c.emitCPUSecondsAllCoreMean(ch)
 	close(ch)
 
 	// Should not emit any metrics when there are no CPUs.
@@ -317,6 +317,166 @@ func TestCPUMeanNoCPUs(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected 0 metrics, got %d", count)
+	}
+}
+
+func TestCPUGuestSecondsAllCoreMean(t *testing.T) {
+	// Test guest seconds all-core mean with multiple CPUs.
+	cpuStats := map[int64]procfs.CPUStat{
+		0: {
+			Guest:     50.0,
+			GuestNice: 10.0,
+		},
+		1: {
+			Guest:     100.0,
+			GuestNice: 20.0,
+		},
+	}
+
+	c := makeTestCPUCollector(cpuStats)
+	c.cpuGuestSecondsAllCoreMean = nodeCPUGuestSecondsAllCoreMeanDesc
+
+	// Enable CPU guest metrics
+	enableGuestTrue := true
+	oldEnableCPUGuest := enableCPUGuest
+	enableCPUGuest = &enableGuestTrue
+	defer func() { enableCPUGuest = oldEnableCPUGuest }()
+
+	// Expected: guest=(50+100)/2=75, guest_nice=(10+20)/2=15
+	ch := make(chan prometheus.Metric, 2)
+	c.emitCPUGuestSecondsAllCoreMean(ch)
+	close(ch)
+
+	count := 0
+	for range ch {
+		count++
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 metrics, got %d", count)
+	}
+}
+
+func TestCPUGuestSecondsAllCoreMeanDisabled(t *testing.T) {
+	// Test that guest metrics are not emitted when disabled.
+	cpuStats := map[int64]procfs.CPUStat{
+		0: {
+			Guest:     50.0,
+			GuestNice: 10.0,
+		},
+	}
+
+	c := makeTestCPUCollector(cpuStats)
+	c.cpuGuestSecondsAllCoreMean = nodeCPUGuestSecondsAllCoreMeanDesc
+
+	// Disable CPU guest metrics
+	enableGuestFalse := false
+	oldEnableCPUGuest := enableCPUGuest
+	enableCPUGuest = &enableGuestFalse
+	defer func() { enableCPUGuest = oldEnableCPUGuest }()
+
+	ch := make(chan prometheus.Metric, 2)
+	c.emitCPUGuestSecondsAllCoreMean(ch)
+	close(ch)
+
+	count := 0
+	for range ch {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 metrics when guest is disabled, got %d", count)
+	}
+}
+
+func TestCPUFrequencyAllCoreAggregates(t *testing.T) {
+	// Test frequency min/mean/max aggregates.
+	info := []procfs.CPUInfo{
+		{CPUMHz: 2500},
+		{CPUMHz: 3000},
+		{CPUMHz: 3500},
+	}
+
+	c := &cpuCollector{
+		logger:                    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cpuFrequencyHzAllCoreMin:  nodeCPUFrequencyHzAllCoreMinDesc,
+		cpuFrequencyHzAllCoreMean: nodeCPUFrequencyHzAllCoreMeanDesc,
+		cpuFrequencyHzAllCoreMax:  nodeCPUFrequencyHzAllCoreMaxDesc,
+	}
+
+	// Expected: min=2500MHz, mean=3000MHz, max=3500MHz
+	ch := make(chan prometheus.Metric, 3)
+	c.emitCPUFrequencyAllCoreAggregates(ch, info)
+	close(ch)
+
+	count := 0
+	for range ch {
+		count++
+	}
+	if count != 3 {
+		t.Fatalf("expected 3 metrics, got %d", count)
+	}
+}
+
+func TestCPUFrequencyAllCoreAggregatesEmpty(t *testing.T) {
+	// Test with no CPU info - should not emit any metrics.
+	c := &cpuCollector{
+		logger:                    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cpuFrequencyHzAllCoreMin:  nodeCPUFrequencyHzAllCoreMinDesc,
+		cpuFrequencyHzAllCoreMean: nodeCPUFrequencyHzAllCoreMeanDesc,
+		cpuFrequencyHzAllCoreMax:  nodeCPUFrequencyHzAllCoreMaxDesc,
+	}
+
+	ch := make(chan prometheus.Metric, 3)
+	c.emitCPUFrequencyAllCoreAggregates(ch, []procfs.CPUInfo{})
+	close(ch)
+
+	count := 0
+	for range ch {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 metrics, got %d", count)
+	}
+}
+
+func TestCPUInfoAllCoreAggregate(t *testing.T) {
+	// Test CPU info aggregate with varied data.
+	info := []procfs.CPUInfo{
+		{
+			VendorID:   "GenuineIntel",
+			CPUFamily:  "6",
+			Model:      "85",
+			ModelName:  "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+			Microcode:  "0x2006e05",
+			Stepping:   "4",
+			CacheSize:  "25344 KB",
+		},
+		{
+			VendorID:   "GenuineIntel",
+			CPUFamily:  "6",
+			Model:      "85",
+			ModelName:  "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+			Microcode:  "0x2006e05",
+			Stepping:   "4",
+			CacheSize:  "25344 KB",
+		},
+	}
+
+	c := &cpuCollector{
+		logger:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cpuInfoAllCoreAggregate: nodeCPUInfoAllCoreAggregateDesc,
+	}
+
+	// Should emit 1 metric with modal values
+	ch := make(chan prometheus.Metric, 1)
+	c.emitCPUInfoAllCoreAggregate(ch, info)
+	close(ch)
+
+	count := 0
+	for range ch {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 metric, got %d", count)
 	}
 }
 
