@@ -56,4 +56,61 @@ var (
 		"Current enabled CPU frequency governor.",
 		[]string{"cpu", "governor"}, nil,
 	)
+
+	// All-core aggregate metrics
+	cpuFreqHertzAllCoreMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_min"),
+		"Minimum current CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqHertzAllCoreMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_mean"),
+		"Mean current CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqHertzAllCoreMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_hertz_all_core_max"),
+		"Maximum current CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqMinAllCoreMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_min_hertz_all_core_min"),
+		"Minimum CPU frequency limit in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqMaxAllCoreMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "frequency_max_hertz_all_core_max"),
+		"Maximum CPU frequency limit in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingFreqAllCoreMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_frequency_hertz_all_core_min"),
+		"Minimum scaled CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingFreqAllCoreMeanDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_frequency_hertz_all_core_mean"),
+		"Mean scaled CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingFreqAllCoreMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_frequency_hertz_all_core_max"),
+		"Maximum scaled CPU frequency in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingFreqMinAllCoreMinDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_frequency_min_hertz_all_core_min"),
+		"Minimum scaled CPU frequency limit in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingFreqMaxAllCoreMaxDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_frequency_max_hertz_all_core_max"),
+		"Maximum scaled CPU frequency limit in hertz across all cores.",
+		nil, nil,
+	)
+	cpuFreqScalingGovernorAllCoreAggregateDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "scaling_governor_all_core_aggregate"),
+		"Most common CPU frequency governor across all cores.",
+		[]string{"governor"}, nil,
+	)
 )

@@ -19,7 +19,6 @@ package collector
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/procfs/sysfs"
@@ -54,73 +53,144 @@ func (c *cpuFreqCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
+	if len(cpuFreqs) == 0 {
+		return nil
+	}
+
 	// sysfs cpufreq values are kHz, thus multiply by 1000 to export base units (hz).
 	// See https://www.kernel.org/doc/Documentation/cpu-freq/user-guide.txt
+
+	// Aggregate values across all cores (per-core metrics removed for cardinality reduction)
+	var (
+		currentFreqs     []float64
+		minFreqs         []float64
+		maxFreqs         []float64
+		scalingFreqs     []float64
+		scalingMinFreqs  []float64
+		scalingMaxFreqs  []float64
+		governorCounts   = make(map[string]int)
+	)
+
 	for _, stats := range cpuFreqs {
 		if stats.CpuinfoCurrentFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqHertzDesc,
-				prometheus.GaugeValue,
-				float64(*stats.CpuinfoCurrentFrequency)*1000.0,
-				stats.Name,
-			)
+			currentFreqs = append(currentFreqs, float64(*stats.CpuinfoCurrentFrequency)*1000.0)
 		}
 		if stats.CpuinfoMinimumFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqMinDesc,
-				prometheus.GaugeValue,
-				float64(*stats.CpuinfoMinimumFrequency)*1000.0,
-				stats.Name,
-			)
+			minFreqs = append(minFreqs, float64(*stats.CpuinfoMinimumFrequency)*1000.0)
 		}
 		if stats.CpuinfoMaximumFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqMaxDesc,
-				prometheus.GaugeValue,
-				float64(*stats.CpuinfoMaximumFrequency)*1000.0,
-				stats.Name,
-			)
+			maxFreqs = append(maxFreqs, float64(*stats.CpuinfoMaximumFrequency)*1000.0)
 		}
 		if stats.ScalingCurrentFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqScalingFreqDesc,
-				prometheus.GaugeValue,
-				float64(*stats.ScalingCurrentFrequency)*1000.0,
-				stats.Name,
-			)
+			scalingFreqs = append(scalingFreqs, float64(*stats.ScalingCurrentFrequency)*1000.0)
 		}
 		if stats.ScalingMinimumFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqScalingFreqMinDesc,
-				prometheus.GaugeValue,
-				float64(*stats.ScalingMinimumFrequency)*1000.0,
-				stats.Name,
-			)
+			scalingMinFreqs = append(scalingMinFreqs, float64(*stats.ScalingMinimumFrequency)*1000.0)
 		}
 		if stats.ScalingMaximumFrequency != nil {
-			ch <- prometheus.MustNewConstMetric(
-				cpuFreqScalingFreqMaxDesc,
-				prometheus.GaugeValue,
-				float64(*stats.ScalingMaximumFrequency)*1000.0,
-				stats.Name,
-			)
+			scalingMaxFreqs = append(scalingMaxFreqs, float64(*stats.ScalingMaximumFrequency)*1000.0)
 		}
 		if stats.Governor != "" {
-			availableGovernors := strings.Split(stats.AvailableGovernors, " ")
-			for _, g := range availableGovernors {
-				state := 0
-				if g == stats.Governor {
-					state = 1
-				}
-				ch <- prometheus.MustNewConstMetric(
-					cpuFreqScalingGovernorDesc,
-					prometheus.GaugeValue,
-					float64(state),
-					stats.Name,
-					g,
-				)
-			}
+			governorCounts[stats.Governor]++
 		}
 	}
+
+	// Emit current frequency aggregates (min/mean/max)
+	if len(currentFreqs) > 0 {
+		min, mean, max := calculateMinMeanMax(currentFreqs)
+		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMinDesc, prometheus.GaugeValue, min)
+		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMeanDesc, prometheus.GaugeValue, mean)
+		ch <- prometheus.MustNewConstMetric(cpuFreqHertzAllCoreMaxDesc, prometheus.GaugeValue, max)
+	}
+
+	// Emit min frequency aggregate (absolute minimum)
+	if len(minFreqs) > 0 {
+		min := minFreqs[0]
+		for _, v := range minFreqs {
+			if v < min {
+				min = v
+			}
+		}
+		ch <- prometheus.MustNewConstMetric(cpuFreqMinAllCoreMinDesc, prometheus.GaugeValue, min)
+	}
+
+	// Emit max frequency aggregate (absolute maximum)
+	if len(maxFreqs) > 0 {
+		max := maxFreqs[0]
+		for _, v := range maxFreqs {
+			if v > max {
+				max = v
+			}
+		}
+		ch <- prometheus.MustNewConstMetric(cpuFreqMaxAllCoreMaxDesc, prometheus.GaugeValue, max)
+	}
+
+	// Emit scaling current frequency aggregates (min/mean/max)
+	if len(scalingFreqs) > 0 {
+		min, mean, max := calculateMinMeanMax(scalingFreqs)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMinDesc, prometheus.GaugeValue, min)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMeanDesc, prometheus.GaugeValue, mean)
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqAllCoreMaxDesc, prometheus.GaugeValue, max)
+	}
+
+	// Emit scaling min frequency aggregate (absolute minimum)
+	if len(scalingMinFreqs) > 0 {
+		min := scalingMinFreqs[0]
+		for _, v := range scalingMinFreqs {
+			if v < min {
+				min = v
+			}
+		}
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqMinAllCoreMinDesc, prometheus.GaugeValue, min)
+	}
+
+	// Emit scaling max frequency aggregate (absolute maximum)
+	if len(scalingMaxFreqs) > 0 {
+		max := scalingMaxFreqs[0]
+		for _, v := range scalingMaxFreqs {
+			if v > max {
+				max = v
+			}
+		}
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingFreqMaxAllCoreMaxDesc, prometheus.GaugeValue, max)
+	}
+
+	// Emit governor aggregate (most common governor)
+	if len(governorCounts) > 0 {
+		maxCount := 0
+		modalGovernor := ""
+		for gov, count := range governorCounts {
+			if count > maxCount {
+				maxCount = count
+				modalGovernor = gov
+			}
+		}
+		ch <- prometheus.MustNewConstMetric(cpuFreqScalingGovernorAllCoreAggregateDesc, prometheus.GaugeValue, 1, modalGovernor)
+	}
+
 	return nil
+}
+
+// calculateMinMeanMax calculates min, mean, and max of a slice of floats
+func calculateMinMeanMax(values []float64) (min, mean, max float64) {
+	if len(values) == 0 {
+		return 0, 0, 0
+	}
+
+	min = values[0]
+	max = values[0]
+	sum := 0.0
+
+	for _, v := range values {
+		sum += v
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+
+	mean = sum / float64(len(values))
+	return min, mean, max
 }

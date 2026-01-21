@@ -223,7 +223,9 @@ func (c *cpuCollector) updateInfo(ch chan<- prometheus.Metric) error {
 		c.emitCPUInfoAllCoreAggregate(ch, info)
 	}
 
-	// Emit aggregate frequency metrics (if cpufreq collector is not enabled)
+	// Emit aggregate frequency metrics from /proc/cpuinfo only when the
+	// dedicated cpufreq collector is disabled (to avoid duplicate metrics).
+	// The cpufreq collector provides more accurate real-time data from sysfs.
 	cpuFreqEnabled, ok := collectorState["cpufreq"]
 	if !ok || cpuFreqEnabled == nil {
 		c.logger.Debug("cpufreq key missing or nil value in collectorState map")
