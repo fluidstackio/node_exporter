@@ -35,23 +35,24 @@ import (
 )
 
 type cpuCollector struct {
-	procfs                     procfs.FS
-	sysfs                      sysfs.FS
-	cpuSecondsAllCoreMean      *prometheus.Desc
-	cpuGuestSecondsAllCoreMean *prometheus.Desc
-	cpuInfoAllCoreAggregate    *prometheus.Desc
-	cpuFrequencyHzAllCoreMin   *prometheus.Desc
-	cpuFrequencyHzAllCoreMean  *prometheus.Desc
-	cpuFrequencyHzAllCoreMax   *prometheus.Desc
-	cpuFlagsInfo               *prometheus.Desc
-	cpuBugsInfo                *prometheus.Desc
-	cpuThrottlesAllCoreTotal   *prometheus.Desc
-	cpuIsolatedAllCoreCount    *prometheus.Desc
-	cpuOnlineAllCoreCount      *prometheus.Desc
-	logger                     *slog.Logger
-	cpuStats                   map[int64]procfs.CPUStat
-	cpuStatsMutex              sync.Mutex
-	isolatedCpus               []uint16
+	procfs                      procfs.FS
+	sysfs                       sysfs.FS
+	cpuSecondsAllCoreMean       *prometheus.Desc
+	cpuGuestSecondsAllCoreMean  *prometheus.Desc
+	cpuInfoAllCoreAggregate     *prometheus.Desc
+	cpuFrequencyHzAllCoreMin    *prometheus.Desc
+	cpuFrequencyHzAllCoreMean   *prometheus.Desc
+	cpuFrequencyHzAllCoreMax    *prometheus.Desc
+	cpuFlagsInfo                *prometheus.Desc
+	cpuBugsInfo                 *prometheus.Desc
+	cpuThrottlesAllCoreTotal    *prometheus.Desc
+	cpuThrottlesAllPackageTotal *prometheus.Desc
+	cpuIsolatedAllCoreCount     *prometheus.Desc
+	cpuOnlineAllCoreCount       *prometheus.Desc
+	logger                      *slog.Logger
+	cpuStats                    map[int64]procfs.CPUStat
+	cpuStatsMutex               sync.Mutex
+	isolatedCpus                []uint16
 
 	cpuFlagsIncludeRegexp *regexp.Regexp
 	cpuBugsIncludeRegexp  *regexp.Regexp
@@ -111,7 +112,8 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 			"The `bugs` field of CPU information from /proc/cpuinfo taken from the first core.",
 			[]string{"bug"}, nil,
 		),
-		cpuThrottlesAllCoreTotal: nodeCPUThrottlesAllCoreTotalDesc,
+		cpuThrottlesAllCoreTotal:    nodeCPUThrottlesAllCoreTotalDesc,
+		cpuThrottlesAllPackageTotal: nodeCPUThrottlesAllPackageTotalDesc,
 		cpuIsolatedAllCoreCount: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "isolated_all_core_count"),
 			"Number of isolated CPUs.",
@@ -307,13 +309,11 @@ func (c *cpuCollector) updateThermalThrottle(ch chan<- prometheus.Metric) error 
 
 	ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
 		prometheus.CounterValue,
-		float64(totalPackageThrottles),
-		"package")
+		float64(totalCoreThrottles))
 
-	ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
+	ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllPackageTotal,
 		prometheus.CounterValue,
-		float64(totalCoreThrottles),
-		"core")
+		float64(totalPackageThrottles))
 
 	return nil
 }

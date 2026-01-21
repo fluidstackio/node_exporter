@@ -64,8 +64,13 @@ var (
 	)
 	nodeCPUThrottlesAllCoreTotalDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_core_total"),
-		"Total number of CPU throttle events across all cores.",
-		[]string{"type"}, nil,
+		"Total number of CPU core throttle events across all cores.",
+		nil, nil,
+	)
+	nodeCPUThrottlesAllPackageTotalDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_package_total"),
+		"Total number of CPU package throttle events across all packages.",
+		nil, nil,
 	)
 )
 
