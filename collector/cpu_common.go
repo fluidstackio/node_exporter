@@ -25,6 +25,8 @@ const (
 )
 
 var (
+	// nodeCPUSecondsDesc is used by non-Linux platforms (Darwin, FreeBSD, etc.)
+	// Linux uses aggregate metrics instead to reduce cardinality
 	nodeCPUSecondsDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "seconds_total"),
 		"Seconds the CPUs spent in each mode.",
@@ -104,4 +106,34 @@ func findModalValue(counts map[string]int) string {
 		}
 	}
 	return modal
+}
+
+// findMin finds the minimum value in a slice of floats.
+// Returns 0 if the slice is empty.
+func findMin(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	min := values[0]
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+// findMax finds the maximum value in a slice of floats.
+// Returns 0 if the slice is empty.
+func findMax(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	max := values[0]
+	for _, v := range values {
+		if v > max {
+			max = v
+		}
+	}
+	return max
 }

@@ -305,19 +305,15 @@ func (c *cpuCollector) updateThermalThrottle(ch chan<- prometheus.Metric) error 
 		}
 	}
 
-	if totalPackageThrottles > 0 {
-		ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
-			prometheus.CounterValue,
-			float64(totalPackageThrottles),
-			"package")
-	}
+	ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
+		prometheus.CounterValue,
+		float64(totalPackageThrottles),
+		"package")
 
-	if totalCoreThrottles > 0 {
-		ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
-			prometheus.CounterValue,
-			float64(totalCoreThrottles),
-			"core")
-	}
+	ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
+		prometheus.CounterValue,
+		float64(totalCoreThrottles),
+		"core")
 
 	return nil
 }
