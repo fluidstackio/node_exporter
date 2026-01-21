@@ -111,11 +111,7 @@ func NewCPUCollector(logger *slog.Logger) (Collector, error) {
 			"The `bugs` field of CPU information from /proc/cpuinfo taken from the first core.",
 			[]string{"bug"}, nil,
 		),
-		cpuThrottlesAllCoreTotal: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_core_total"),
-			"Total number of CPU throttle events across all cores.",
-			nil, nil,
-		),
+		cpuThrottlesAllCoreTotal: nodeCPUThrottlesAllCoreTotalDesc,
 		cpuIsolatedAllCoreCount: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "isolated_all_core_count"),
 			"Number of isolated CPUs.",
@@ -297,21 +293,30 @@ func (c *cpuCollector) updateThermalThrottle(ch chan<- prometheus.Metric) error 
 		}
 	}
 
-	// Emit aggregate total throttle count across all cores
-	var totalThrottles uint64
+	// Emit separate aggregate metrics for package-level and core-level throttles
+	var totalPackageThrottles, totalCoreThrottles uint64
+
 	for _, packageThrottleCount := range packageThrottles {
-		totalThrottles += packageThrottleCount
+		totalPackageThrottles += packageThrottleCount
 	}
 	for _, coreMap := range packageCoreThrottles {
 		for _, coreThrottleCount := range coreMap {
-			totalThrottles += coreThrottleCount
+			totalCoreThrottles += coreThrottleCount
 		}
 	}
 
-	if totalThrottles > 0 {
+	if totalPackageThrottles > 0 {
 		ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
 			prometheus.CounterValue,
-			float64(totalThrottles))
+			float64(totalPackageThrottles),
+			"package")
+	}
+
+	if totalCoreThrottles > 0 {
+		ch <- prometheus.MustNewConstMetric(c.cpuThrottlesAllCoreTotal,
+			prometheus.CounterValue,
+			float64(totalCoreThrottles),
+			"core")
 	}
 
 	return nil
@@ -436,29 +441,16 @@ func (c *cpuCollector) emitCPUInfoAllCoreAggregate(ch chan<- prometheus.Metric, 
 		cacheSizeCount[cpu.CacheSize]++
 	}
 
-	// Helper to find modal value
-	findModal := func(counts map[string]int) string {
-		maxCount := 0
-		modal := ""
-		for val, count := range counts {
-			if count > maxCount {
-				maxCount = count
-				modal = val
-			}
-		}
-		return modal
-	}
-
 	ch <- prometheus.MustNewConstMetric(c.cpuInfoAllCoreAggregate,
 		prometheus.GaugeValue,
 		1,
-		findModal(vendorCount),
-		findModal(familyCount),
-		findModal(modelCount),
-		findModal(modelNameCount),
-		findModal(microcodeCount),
-		findModal(steppingCount),
-		findModal(cacheSizeCount))
+		findModalValue(vendorCount),
+		findModalValue(familyCount),
+		findModalValue(modelCount),
+		findModalValue(modelNameCount),
+		findModalValue(microcodeCount),
+		findModalValue(steppingCount),
+		findModalValue(cacheSizeCount))
 }
 
 // emitCPUFrequencyAllCoreAggregates calculates and emits min/mean/max CPU frequency across all cores.
@@ -467,22 +459,14 @@ func (c *cpuCollector) emitCPUFrequencyAllCoreAggregates(ch chan<- prometheus.Me
 		return
 	}
 
-	var minFreq, maxFreq, sumFreq float64
-	minFreq = info[0].CPUMHz * 1e6
-	maxFreq = info[0].CPUMHz * 1e6
-
+	// Collect all frequencies into a slice
+	freqs := make([]float64, 0, len(info))
 	for _, cpu := range info {
-		freq := cpu.CPUMHz * 1e6
-		sumFreq += freq
-		if freq < minFreq {
-			minFreq = freq
-		}
-		if freq > maxFreq {
-			maxFreq = freq
-		}
+		freqs = append(freqs, cpu.CPUMHz*1e6)
 	}
 
-	meanFreq := sumFreq / float64(len(info))
+	// Use common helper to calculate min/mean/max
+	minFreq, meanFreq, maxFreq := calculateMinMeanMax(freqs)
 
 	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMin, prometheus.GaugeValue, minFreq)
 	ch <- prometheus.MustNewConstMetric(c.cpuFrequencyHzAllCoreMean, prometheus.GaugeValue, meanFreq)

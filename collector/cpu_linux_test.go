@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"testing"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/procfs"
 )
@@ -40,6 +41,30 @@ func makeTestCPUCollector(s map[int64]procfs.CPUStat) *cpuCollector {
 		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		cpuStats: dup,
 	}
+}
+
+// Helper function to extract metric value and labels from a prometheus.Metric
+func readMetric(m prometheus.Metric) (float64, map[string]string) {
+	pb := &dto.Metric{}
+	if err := m.Write(pb); err != nil {
+		panic(err)
+	}
+
+	labels := make(map[string]string)
+	for _, lp := range pb.Label {
+		labels[*lp.Name] = *lp.Value
+	}
+
+	var value float64
+	if pb.Gauge != nil {
+		value = pb.Gauge.GetValue()
+	} else if pb.Counter != nil {
+		value = pb.Counter.GetValue()
+	} else if pb.Untyped != nil {
+		value = pb.Untyped.GetValue()
+	}
+
+	return value, labels
 }
 
 func TestCPU(t *testing.T) {
@@ -231,36 +256,36 @@ func TestCPUSecondsAllCoreMean(t *testing.T) {
 	c := makeTestCPUCollector(cpuStats)
 	c.cpuSecondsAllCoreMean = nodeCPUSecondsAllCoreMeanDesc
 
-	// Expected means (sum / 2):
-	// user: (100 + 200) / 2 = 150
-	// nice: (20 + 40) / 2 = 30
-	// system: (30 + 60) / 2 = 45
-	// idle: (400 + 800) / 2 = 600
-	// iowait: (10 + 20) / 2 = 15
-	// irq: (5 + 10) / 2 = 7.5
-	// softirq: (5 + 10) / 2 = 7.5
-	// steal: (0 + 0) / 2 = 0
-
 	ch := make(chan prometheus.Metric, 8)
 	c.emitCPUSecondsAllCoreMean(ch)
 	close(ch)
 
-	// Expected means (for reference, not used in test):
-	// user: (100 + 200) / 2 = 150
-	// nice: (20 + 40) / 2 = 30
-	// system: (30 + 60) / 2 = 45
-	// idle: (400 + 800) / 2 = 600
-	// iowait: (10 + 20) / 2 = 15
-	// irq: (5 + 10) / 2 = 7.5
-	// softirq: (5 + 10) / 2 = 7.5
-	// steal: (0 + 0) / 2 = 0
+	// Expected means (sum / 2)
+	expectedValues := map[string]float64{
+		"user":    150.0, // (100 + 200) / 2
+		"nice":    30.0,  // (20 + 40) / 2
+		"system":  45.0,  // (30 + 60) / 2
+		"idle":    600.0, // (400 + 800) / 2
+		"iowait":  15.0,  // (10 + 20) / 2
+		"irq":     7.5,   // (5 + 10) / 2
+		"softirq": 7.5,   // (5 + 10) / 2
+		"steal":   0.0,   // (0 + 0) / 2
+	}
 
-	// Since we can't easily extract values from prometheus.Metric in a unit test,
-	// let's just verify we got 8 metrics (one per mode).
 	count := 0
-	for range ch {
+	for metric := range ch {
+		value, labels := readMetric(metric)
+		mode := labels["mode"]
+		expectedValue, ok := expectedValues[mode]
+		if !ok {
+			t.Fatalf("unexpected mode: %s", mode)
+		}
+		if value != expectedValue {
+			t.Errorf("mode %s: expected value %f, got %f", mode, expectedValue, value)
+		}
 		count++
 	}
+
 	if count != 8 {
 		t.Fatalf("expected 8 metrics, got %d", count)
 	}
@@ -342,15 +367,30 @@ func TestCPUGuestSecondsAllCoreMean(t *testing.T) {
 	enableCPUGuest = &enableGuestTrue
 	defer func() { enableCPUGuest = oldEnableCPUGuest }()
 
-	// Expected: guest=(50+100)/2=75, guest_nice=(10+20)/2=15
 	ch := make(chan prometheus.Metric, 2)
 	c.emitCPUGuestSecondsAllCoreMean(ch)
 	close(ch)
 
+	// Expected: guest=(50+100)/2=75, guest_nice=(10+20)/2=15
+	expectedValues := map[string]float64{
+		"user": 75.0, // (50 + 100) / 2
+		"nice": 15.0, // (10 + 20) / 2
+	}
+
 	count := 0
-	for range ch {
+	for metric := range ch {
+		value, labels := readMetric(metric)
+		mode := labels["mode"]
+		expectedValue, ok := expectedValues[mode]
+		if !ok {
+			t.Fatalf("unexpected mode: %s", mode)
+		}
+		if value != expectedValue {
+			t.Errorf("mode %s: expected value %f, got %f", mode, expectedValue, value)
+		}
 		count++
 	}
+
 	if count != 2 {
 		t.Fatalf("expected 2 metrics, got %d", count)
 	}
@@ -402,17 +442,46 @@ func TestCPUFrequencyAllCoreAggregates(t *testing.T) {
 		cpuFrequencyHzAllCoreMax:  nodeCPUFrequencyHzAllCoreMaxDesc,
 	}
 
-	// Expected: min=2500MHz, mean=3000MHz, max=3500MHz
 	ch := make(chan prometheus.Metric, 3)
 	c.emitCPUFrequencyAllCoreAggregates(ch, info)
 	close(ch)
 
-	count := 0
-	for range ch {
-		count++
+	// Expected: min=2500MHz, mean=3000MHz, max=3500MHz (converted to Hz)
+	metrics := make([]prometheus.Metric, 0, 3)
+	for metric := range ch {
+		metrics = append(metrics, metric)
 	}
-	if count != 3 {
-		t.Fatalf("expected 3 metrics, got %d", count)
+
+	if len(metrics) != 3 {
+		t.Fatalf("expected 3 metrics, got %d", len(metrics))
+	}
+
+	// Collect values by metric name (simplified by checking descriptor match)
+	var minValue, meanValue, maxValue float64
+	for _, metric := range metrics {
+		value, _ := readMetric(metric)
+		desc := metric.Desc().String()
+		if desc == nodeCPUFrequencyHzAllCoreMinDesc.String() {
+			minValue = value
+		} else if desc == nodeCPUFrequencyHzAllCoreMeanDesc.String() {
+			meanValue = value
+		} else if desc == nodeCPUFrequencyHzAllCoreMaxDesc.String() {
+			maxValue = value
+		}
+	}
+
+	expectedMin := 2500.0 * 1e6
+	expectedMean := 3000.0 * 1e6
+	expectedMax := 3500.0 * 1e6
+
+	if minValue != expectedMin {
+		t.Errorf("expected min frequency %f, got %f", expectedMin, minValue)
+	}
+	if meanValue != expectedMean {
+		t.Errorf("expected mean frequency %f, got %f", expectedMean, meanValue)
+	}
+	if maxValue != expectedMax {
+		t.Errorf("expected max frequency %f, got %f", expectedMax, maxValue)
 	}
 }
 

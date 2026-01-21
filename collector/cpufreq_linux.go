@@ -157,40 +157,9 @@ func (c *cpuFreqCollector) Update(ch chan<- prometheus.Metric) error {
 
 	// Emit governor aggregate (most common governor)
 	if len(governorCounts) > 0 {
-		maxCount := 0
-		modalGovernor := ""
-		for gov, count := range governorCounts {
-			if count > maxCount {
-				maxCount = count
-				modalGovernor = gov
-			}
-		}
+		modalGovernor := findModalValue(governorCounts)
 		ch <- prometheus.MustNewConstMetric(cpuFreqScalingGovernorAllCoreAggregateDesc, prometheus.GaugeValue, 1, modalGovernor)
 	}
 
 	return nil
-}
-
-// calculateMinMeanMax calculates min, mean, and max of a slice of floats
-func calculateMinMeanMax(values []float64) (min, mean, max float64) {
-	if len(values) == 0 {
-		return 0, 0, 0
-	}
-
-	min = values[0]
-	max = values[0]
-	sum := 0.0
-
-	for _, v := range values {
-		sum += v
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
-		}
-	}
-
-	mean = sum / float64(len(values))
-	return min, mean, max
 }

@@ -60,4 +60,48 @@ var (
 		"Maximum CPU frequency in hertz across all cores.",
 		nil, nil,
 	)
+	nodeCPUThrottlesAllCoreTotalDesc = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "throttles_all_core_total"),
+		"Total number of CPU throttle events across all cores.",
+		[]string{"type"}, nil,
+	)
 )
+
+// calculateMinMeanMax calculates min, mean, and max of a slice of floats
+func calculateMinMeanMax(values []float64) (min, mean, max float64) {
+	if len(values) == 0 {
+		return 0, 0, 0
+	}
+
+	min = values[0]
+	max = values[0]
+	sum := 0.0
+
+	for _, v := range values {
+		sum += v
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+
+	mean = sum / float64(len(values))
+	return min, mean, max
+}
+
+// findModalValue finds the most common value in a count map.
+// Uses lexicographic ordering for deterministic tie-breaking.
+func findModalValue(counts map[string]int) string {
+	maxCount := 0
+	modal := ""
+	for val, count := range counts {
+		// Use lexicographic ordering for deterministic tie-breaking
+		if count > maxCount || (count == maxCount && (modal == "" || val < modal)) {
+			maxCount = count
+			modal = val
+		}
+	}
+	return modal
+}
