@@ -2,7 +2,13 @@
 
 set -e
 
-echo "Building multi-architecture node_exporter with corrected approach..."
+AWS_ACCOUNT_ID=119673406361
+AWS_REGION=us-east-2
+AWS_ECR_NAMESPACE=fluidstack-clusters
+
+IMAGE_TAG=v1.9.1
+
+echo "Building multi-architecture node_exporter..."
 
 # Create build directory
 mkdir -p .build
@@ -23,7 +29,7 @@ docker buildx create --name multiarch-builder --use || true
 echo "Building multi-architecture image with buildx..."
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
-    --tag ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:multiarch \
+    --tag ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:${IMAGE_TAG} \
     --file Dockerfile.multiarch \
     --push \
     .
@@ -36,12 +42,12 @@ echo "  - .build/linux-amd64/node_exporter (Linux AMD64)"
 echo "  - .build/linux-arm64/node_exporter (Linux ARM64)"
 echo ""
 echo "Generated multi-architecture Docker image:"
-echo "  - ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:multiarch (supports both AMD64 and ARM64)"
+echo "  - ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:${IMAGE_TAG} (supports both AMD64 and ARM64)"
 echo ""
 echo "Architecture verification:"
 file .build/linux-amd64/node_exporter
 file .build/linux-arm64/node_exporter
 echo ""
 echo "To test the multi-architecture image:"
-echo "  docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:multiarch"
-echo "  docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:multiarch --version" 
+echo "  docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:${IMAGE_TAG}"
+echo "  docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_NAMESPACE}/node-exporter:${IMAGE_TAG} --version"
